@@ -9,7 +9,7 @@ FULL_SCREEN = False
 SCREEN_TITLE = "Evolve.io"
 
 # GAME VARIABLES
-SCREEN_PART_WIDTH = 50
+SCREEN_PART_WIDTH = SCREEN_WIDTH / 10
 
 # SIMULATION VARIABLES
 FOOD = 200
@@ -18,7 +18,7 @@ PLAYERS = 100
 POSSIBLE_STARTING_POINTS = (10, 20)
 POSSIBLE_SPEED = (5, 20)
 POSSIBLE_REPRODUCTION_SPEED = (1, 20)
-POSSIBLE_GROWTH_FACTOR = (1, 20)
+POSSIBLE_GROWTH_FACTOR = (0.01, 0.5)
 POSSIBLE_SIGHT = (1, int(SCREEN_PART_WIDTH  * 1.5))
 
 
@@ -81,26 +81,36 @@ class Player(arcade.Sprite):
         target_distance = SCREEN_PART_WIDTH * 2
         target = None
         for t in _targets_in_area:
-            if t.score < self.score:
+            if t != self:
                 distance = calculate_distane((self.center_x, self.center_y), (t.center_x, t.center_y))
-                if distance < target_distance or (type(target) == Food and type(t) == Player):
+                if distance < target_distance:
                     target_distance = distance
                     target = t
         
-        self.target = target
-        if target:
-            self.go_to((target.center_x, target.center_y))
+        if target and target_distance < self.sight:
+            if target.score > self.score:
+                self.go_to((target.center_x, target.center_y), away=True)
+            else:
+                self.go_to((target.center_x, target.center_y))
+            
+            if target_distance + target.score / 2 < self.score / 2:
+                self.add_score(add=target.score)
+                target.die()
 
-        if self.center_x  + self.change_x <= 0 or self.center_x + self.change_x > SCREEN_WIDTH:
-            print('gaat fout, dus we draaien het om X as')
+        if self.center_x - self.score / 2 - self.change_x  <= 0 or self.center_x + self.score / 2 + self.change_x > SCREEN_WIDTH:
             self.change_x = self.change_x * -1
 
-        if self.center_y  + self.change_y <= 0 or self.center_y + self.change_y > SCREEN_HEIGHT:
-            print('gaat fout, dus we draaien het om Y as')
+        if self.center_y  - self.score / 2 - self.change_y <= 0 or self.center_y + self.score / 2 + self.change_y > SCREEN_HEIGHT:
             self.change_y = self.change_y * -1
 
         self.center_x += self.change_x * delta_time
         self.center_y += self.change_y * delta_time
+
+        if self.center_x < 0 or self.center_x > SCREEN_WIDTH:
+            self.center_x = SCREEN_WIDTH / 2
+
+        if self.center_y < 0 or self.center_y > SCREEN_HEIGHT:
+            self.center_y = SCREEN_HEIGHT / 2
         
 
     def set_screen_part(self):
@@ -117,19 +127,21 @@ class Player(arcade.Sprite):
             # update data
             self.screen_part = new_screen_part
 
-            print(self.change_x, self.change_y, self.center_x, self.center_y, self.screen_part)
             # add to new screen part
-            self.parent_game.screen_parts[self.screen_part[0]][self.screen_part[1]].append(self)
+            try:
+                self.parent_game.screen_parts[self.screen_part[0]][self.screen_part[1]].append(self)
+            except IndexError:
+                self.screen_part = None
 
     def reproduce(self):
         pass
 
     def add_score(self, add=1):
-        self.score += add
+        self.score += add * self.growth_factor
         self._set_width(self.score)
         self._set_height(self.score)
 
-    def go_to(self, pos: tuple):
+    def go_to(self, pos: tuple, away=False):
         distance = calculate_distane((self.center_x, self.center_y), pos)
         delta_x = self.center_x - pos[0]
         delta_y = self.center_y - pos[1]
@@ -138,13 +150,18 @@ class Player(arcade.Sprite):
             mul = self.speed / distance
         except ZeroDivisionError:
             mul = 0
-        self.change_x = delta_x * mul * -1
-        self.change_y = delta_y * mul * -1
 
-    def on_draw(self):
-        if self.target:
-            arcade.draw_line(self.center_x, self.center_y, self.target.center_x, self.target.center_y, (255, 0, 0))
+        if not away:
+            self.change_x = delta_x * mul * -1
+            self.change_y = delta_y * mul * -1
+        else:
+            self.change_x = delta_x * mul
+            self.change_y = delta_y * mul
 
+    def die(self):
+        self.parent_game.players.remove(self)
+        self.parent_game.screen_parts[self.screen_part[0]][self.screen_part[1]].remove(self)
+        return
 
 
 class Food(arcade.Sprite):
@@ -185,7 +202,7 @@ class Game(arcade.Window):
             color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
             speed = random.randint(POSSIBLE_SPEED[0], POSSIBLE_SPEED[1])
             reproduction_rate = random.randint(POSSIBLE_REPRODUCTION_SPEED[0], POSSIBLE_REPRODUCTION_SPEED[1])
-            growth_factor = random.randint(POSSIBLE_GROWTH_FACTOR[0], POSSIBLE_GROWTH_FACTOR[1])
+            growth_factor = random.uniform(POSSIBLE_GROWTH_FACTOR[0], POSSIBLE_GROWTH_FACTOR[1])
             score = random.randint(POSSIBLE_STARTING_POINTS[0], POSSIBLE_STARTING_POINTS[1])
             pos = (random.randint(0, SCREEN_WIDTH), random.randint(0, SCREEN_HEIGHT))
             sight = random.randint(POSSIBLE_SIGHT[0], POSSIBLE_SIGHT[1])
@@ -205,9 +222,6 @@ class Game(arcade.Window):
 
         self.players.draw()
         self.food.draw()
-
-        for player in self.players:
-            player.on_draw()
 
 
 if __name__ == "__main__":
